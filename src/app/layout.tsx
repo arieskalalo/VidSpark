@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Video Captioner",
-  description: "Upload a video and add AI-generated captions with Remotion",
+  title: "VidSpark",
+  description: "Upload a video and add AI-generated captions with VidSpark",
 };
 
 export default function RootLayout({

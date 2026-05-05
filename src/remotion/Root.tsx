@@ -13,6 +13,15 @@ export const RemotionRoot: React.FC = () => {
       defaultProps={{
         videoSrc: "",
         text: "Your caption here",
+        trimStart: 0,
+        trimEnd: 0,
+        speed: 1,
+        muted: false,
+        orientation: 0,
+        captionPosition: "bottom",
+        fontSize: 40,
+        textColor: "#ffffff",
+        secondVideoMode: "none",
       }}
     />
   );
