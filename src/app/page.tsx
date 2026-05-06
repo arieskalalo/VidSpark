@@ -223,8 +223,17 @@ export default function Home() {
             >
               <input ref={fileInputRef} type="file" accept="video/*" className="hidden" onChange={handleFileChange} />
               {videoObjectUrl ? (
-                <video ref={previewRef} src={videoObjectUrl} controls onLoadedMetadata={onVideoLoaded}
-                  className="w-full max-h-52 rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />
+                <div className="relative w-full" onClick={(e) => e.stopPropagation()}>
+                  <video ref={previewRef} src={videoObjectUrl} controls onLoadedMetadata={onVideoLoaded}
+                    className="w-full max-h-52 rounded-lg object-contain" />
+                  <button
+                    onClick={(e) => { e.stopPropagation(); clearVideo(); }}
+                    className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 hover:bg-red-600 text-white flex items-center justify-center text-sm font-bold transition-colors"
+                    title="Remove video"
+                  >
+                    ✕
+                  </button>
+                </div>
               ) : (
                 <>
                   <VideoIcon />
@@ -234,15 +243,10 @@ export default function Home() {
               )}
             </div>
             {videoFile && (
-              <div className="flex items-center justify-between mt-2">
-                <p className="text-xs text-zinc-500">
-                  {videoFile.name} · {(videoFile.size / 1024 / 1024).toFixed(1)} MB
-                  {videoDuration > 0 && ` · ${fmtTime(videoDuration)}`}
-                </p>
-                <button onClick={clearVideo} className="text-xs text-red-400 hover:text-red-300 transition-colors ml-3 shrink-0">
-                  Remove
-                </button>
-              </div>
+              <p className="text-xs text-zinc-500 text-center mt-2">
+                {videoFile.name} · {(videoFile.size / 1024 / 1024).toFixed(1)} MB
+                {videoDuration > 0 && ` · ${fmtTime(videoDuration)}`}
+              </p>
             )}
           </Card>
 
