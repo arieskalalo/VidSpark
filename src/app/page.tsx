@@ -125,6 +125,14 @@ export default function Home() {
     clearSecond();
   }
 
+  function clearVideo() {
+    setVideoFile(null);
+    setVideoObjectUrl(null);
+    setVideoDuration(0);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    reset();
+  }
+
   async function handleGenerate() {
     if (!prompt.trim()) return;
     setStage("generating");
@@ -226,10 +234,15 @@ export default function Home() {
               )}
             </div>
             {videoFile && (
-              <p className="text-xs text-zinc-500 text-center mt-2">
-                {videoFile.name} · {(videoFile.size / 1024 / 1024).toFixed(1)} MB
-                {videoDuration > 0 && ` · ${fmtTime(videoDuration)}`}
-              </p>
+              <div className="flex items-center justify-between mt-2">
+                <p className="text-xs text-zinc-500">
+                  {videoFile.name} · {(videoFile.size / 1024 / 1024).toFixed(1)} MB
+                  {videoDuration > 0 && ` · ${fmtTime(videoDuration)}`}
+                </p>
+                <button onClick={clearVideo} className="text-xs text-red-400 hover:text-red-300 transition-colors ml-3 shrink-0">
+                  Remove
+                </button>
+              </div>
             )}
           </Card>
 
