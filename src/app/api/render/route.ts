@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     if (!videoDuration) {
       try {
         const meta = await getVideoMetadata(videoSrc);
-        videoDuration = meta.durationInSeconds;
+        videoDuration = meta.durationInSeconds ?? 30;
       } catch {
         videoDuration = 30;
       }
