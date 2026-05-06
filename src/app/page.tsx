@@ -50,6 +50,9 @@ export default function Home() {
   const [stage, setStage] = useState<Stage>("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [renderPct, setRenderPct] = useState(0);
+  const [renderStatus, setRenderStatus] = useState("");
+  const [renderFrame, setRenderFrame] = useState({ current: 0, total: 0 });
   const [showWalkthrough, setShowWalkthrough] = useState(false);
   const walkthroughRef = useRef<HTMLVideoElement>(null);
 
@@ -159,9 +162,12 @@ export default function Home() {
     if (!videoFile) return;
     setStage("rendering");
     setErrorMsg("");
+    setRenderPct(0);
+    setRenderStatus("Starting…");
+    setRenderFrame({ current: 0, total: 0 });
+
     try {
       const form = new FormData();
-
       form.append("video", videoFile);
       form.append("videoDuration", String(videoDuration));
       form.append("trimStart", String(trimStart));
@@ -169,7 +175,6 @@ export default function Home() {
       form.append("speed", String(speed));
       form.append("muted", String(muted));
       form.append("orientation", String(orientation));
-
       form.append("secondVideoMode", secondVideoMode);
       if (secondVideoMode !== "none" && secondFile) {
         form.append("secondVideo", secondFile);
@@ -177,21 +182,55 @@ export default function Home() {
         form.append("insertDuration", String(secondDuration));
         form.append("splitLayout", splitLayout);
       }
-
       form.append("text", caption);
       form.append("captionPosition", captionPosition);
       form.append("fontSize", String(fontSize));
       form.append("textColor", textColor);
 
       const res = await fetch("/api/render", { method: "POST", body: form });
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({ error: "Render failed" }));
         throw new Error(data.error || "Render failed");
       }
 
-      const blob = await res.blob();
-      setDownloadUrl(URL.createObjectURL(blob));
-      setStage("done");
+      // Read SSE stream
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === "progress") {
+              setRenderPct(event.pct);
+              setRenderFrame({ current: event.frame, total: event.total });
+              setRenderStatus(`Rendering frames…`);
+            } else if (event.type === "status") {
+              setRenderPct(event.pct);
+              setRenderStatus(event.message);
+            } else if (event.type === "done") {
+              setRenderPct(100);
+              setRenderStatus("Done!");
+              setDownloadUrl(event.url);
+              setStage("done");
+            } else if (event.type === "error") {
+              throw new Error(event.message);
+            }
+          } catch (parseErr) {
+            if (parseErr instanceof SyntaxError) continue;
+            throw parseErr;
+          }
+        }
+      }
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Something went wrong");
       setStage("error");
@@ -504,7 +543,32 @@ export default function Home() {
                   ? <span className="flex items-center justify-center gap-2"><Spinner size={16} />Rendering…</span>
                   : "Render Video"}
               </button>
-              {isRendering && <p className="text-xs text-zinc-500 text-center mt-2">This may take a moment depending on video length…</p>}
+
+              {isRendering && (
+                <div className="mt-4 flex flex-col gap-2">
+                  {/* Progress bar */}
+                  <div className="w-full bg-zinc-800 rounded-full h-2.5 overflow-hidden">
+                    <div
+                      className="h-2.5 rounded-full bg-indigo-500 transition-all duration-300"
+                      style={{ width: `${renderPct}%` }}
+                    />
+                  </div>
+
+                  {/* Status row */}
+                  <div className="flex items-center justify-between text-xs text-zinc-500">
+                    <span>{renderStatus}</span>
+                    <span className="font-mono tabular-nums">
+                      {renderFrame.total > 0
+                        ? `${renderFrame.current} / ${renderFrame.total} frames`
+                        : `${renderPct}%`}
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-zinc-600 text-center">
+                    This takes a while — don&apos;t close the tab.
+                  </p>
+                </div>
+              )}
             </Card>
           )}
 
@@ -519,7 +583,7 @@ export default function Home() {
               <video src={downloadUrl} controls className="w-full rounded-lg" />
               <a href={downloadUrl} download="vidspark.mp4"
                 className="mt-3 block w-full py-3 rounded-lg bg-white text-zinc-950 font-semibold text-center text-sm hover:bg-zinc-100 transition-colors">
-                Download Video
+                ↓ Download Video
               </a>
             </Card>
           )}
