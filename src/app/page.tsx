@@ -50,6 +50,8 @@ export default function Home() {
   const [stage, setStage] = useState<Stage>("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [showWalkthrough, setShowWalkthrough] = useState(false);
+  const walkthroughRef = useRef<HTMLVideoElement>(null);
 
   const hasVideo = !!videoFile;
   const hasSecond = !!secondFile;
@@ -205,8 +207,47 @@ export default function Home() {
       <header className="border-b border-zinc-800 px-6 py-4 flex items-center gap-1">
         <span className="text-xl font-bold text-white">Vid</span>
         <span className="text-xl font-bold text-indigo-400">Spark</span>
-        <span className="ml-auto text-xs text-zinc-600">AI Video Editor</span>
+        <button
+          onClick={() => setShowWalkthrough(true)}
+          className="ml-auto flex items-center gap-1.5 text-xs text-zinc-400 hover:text-indigo-400 transition-colors border border-zinc-700 hover:border-indigo-500 rounded-lg px-3 py-1.5"
+        >
+          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+          How it works
+        </button>
       </header>
+
+      {/* Walkthrough Modal */}
+      {showWalkthrough && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowWalkthrough(false); walkthroughRef.current?.pause(); } }}
+        >
+          <div className="relative w-full max-w-4xl bg-zinc-950 rounded-2xl overflow-hidden border border-zinc-800 shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-white">Vid</span>
+                <span className="text-sm font-bold text-indigo-400">Spark</span>
+                <span className="text-xs text-zinc-500 ml-1">— How it works</span>
+              </div>
+              <button
+                onClick={() => { setShowWalkthrough(false); walkthroughRef.current?.pause(); }}
+                className="w-7 h-7 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center text-sm transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            <video
+              ref={walkthroughRef}
+              src="/vidspark-walkthrough.mp4"
+              controls
+              autoPlay
+              className="w-full"
+            />
+          </div>
+        </div>
+      )}
 
       <main className="flex-1 flex flex-col items-center py-10 px-4">
         <div className="w-full max-w-xl flex flex-col gap-5">
