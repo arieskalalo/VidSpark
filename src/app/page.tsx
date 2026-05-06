@@ -53,6 +53,8 @@ export default function Home() {
   const [renderPct, setRenderPct] = useState(0);
   const [renderStatus, setRenderStatus] = useState("");
   const [renderFrame, setRenderFrame] = useState({ current: 0, total: 0 });
+  const [renderElapsed, setRenderElapsed] = useState(0);
+  const renderStartRef = useRef<number>(0);
   const [showWalkthrough, setShowWalkthrough] = useState(false);
   const walkthroughRef = useRef<HTMLVideoElement>(null);
 
@@ -165,6 +167,11 @@ export default function Home() {
     setRenderPct(0);
     setRenderStatus("Starting…");
     setRenderFrame({ current: 0, total: 0 });
+    setRenderElapsed(0);
+    renderStartRef.current = Date.now();
+    const timer = setInterval(() => {
+      setRenderElapsed(Math.floor((Date.now() - renderStartRef.current) / 1000));
+    }, 1000);
 
     try {
       const form = new FormData();
@@ -234,6 +241,8 @@ export default function Home() {
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Something went wrong");
       setStage("error");
+    } finally {
+      clearInterval(timer);
     }
   }
 
@@ -549,24 +558,33 @@ export default function Home() {
                   {/* Progress bar */}
                   <div className="w-full bg-zinc-800 rounded-full h-2.5 overflow-hidden">
                     <div
-                      className="h-2.5 rounded-full bg-indigo-500 transition-all duration-300"
-                      style={{ width: `${renderPct}%` }}
+                      className={`h-2.5 rounded-full bg-indigo-500 transition-all duration-500 ${renderPct < 10 || (renderPct < 96 && renderFrame.total === 0) ? "animate-pulse" : ""}`}
+                      style={{ width: `${Math.max(renderPct, 3)}%` }}
                     />
                   </div>
 
                   {/* Status row */}
                   <div className="flex items-center justify-between text-xs text-zinc-500">
-                    <span>{renderStatus}</span>
-                    <span className="font-mono tabular-nums">
+                    <span className="flex items-center gap-1.5">
+                      <Spinner size={11} />
+                      {renderStatus}
+                    </span>
+                    <span className="font-mono tabular-nums text-zinc-600">
                       {renderFrame.total > 0
                         ? `${renderFrame.current} / ${renderFrame.total} frames`
                         : `${renderPct}%`}
                     </span>
                   </div>
 
-                  <p className="text-xs text-zinc-600 text-center">
-                    This takes a while — don&apos;t close the tab.
-                  </p>
+                  {/* Elapsed + bundling hint */}
+                  <div className="flex items-center justify-between text-xs text-zinc-700">
+                    <span>
+                      {renderPct <= 8
+                        ? "⏳ Bundling on first run takes 1–2 min — still working!"
+                        : "Don't close this tab."}
+                    </span>
+                    <span className="font-mono tabular-nums">{renderElapsed}s</span>
+                  </div>
                 </div>
               )}
             </Card>
