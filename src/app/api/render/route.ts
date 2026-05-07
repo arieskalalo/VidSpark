@@ -21,10 +21,11 @@ async function getBundle() {
     }
   }
 
-  // Fallback: bundle at runtime (slow first render, ~1-2 min)
+  // Bundle at runtime — rspack is much faster and uses far less RAM than webpack
   bundleCache = await bundle({
     entryPoint: path.resolve(process.cwd(), "src/remotion/index.ts"),
     webpackOverride: (config) => config,
+    rspack: true,
   });
   return bundleCache;
 }
@@ -79,31 +80,25 @@ export async function POST(request: NextRequest) {
   // Run render in background, stream progress
   (async () => {
     try {
-      const host = request.headers.get("host") ?? "localhost:3000";
-      const protocol = host.startsWith("localhost") ? "http" : "https";
-
-      // Build URL for a tmp file served via /api/tmp/[filename]
-      const toUrl = (filename: string) => `${protocol}://${host}/api/tmp/${filename}`;
-
       send({ type: "status", message: "Uploading video…", pct: 2 });
 
-      // Save main video to tmpdir so Remotion can fetch it via the API route
+      // Save videos to tmpdir and pass LOCAL FILE PATHS to Remotion.
+      // OffthreadVideo uses ffmpeg server-side — ffmpeg reads the file
+      // directly from disk, no HTTP request needed.
       const mainBuf = Buffer.from(await videoFile.arrayBuffer());
-      const mainFilename = `input_main_${jobId}.mp4`;
-      const mainInputPath = path.join(tmpDir, mainFilename);
+      const mainInputPath = path.join(tmpDir, `input_main_${jobId}.mp4`);
       fs.writeFileSync(mainInputPath, mainBuf);
       inputFiles.push(mainInputPath);
-      const videoSrc = toUrl(mainFilename);
+      const videoSrc = mainInputPath;
 
-      // Save second video
+      // Second video
       let secondVideoSrc: string | undefined;
       if (secondVideoMode !== "none" && secondVideoFile) {
         const buf = Buffer.from(await secondVideoFile.arrayBuffer());
-        const secondFilename = `input_second_${jobId}.mp4`;
-        const secondInputPath = path.join(tmpDir, secondFilename);
+        const secondInputPath = path.join(tmpDir, `input_second_${jobId}.mp4`);
         fs.writeFileSync(secondInputPath, buf);
         inputFiles.push(secondInputPath);
-        secondVideoSrc = toUrl(secondFilename);
+        secondVideoSrc = secondInputPath;
       }
 
       send({ type: "status", message: "Preparing composition…", pct: 5 });
@@ -113,7 +108,8 @@ export async function POST(request: NextRequest) {
       let videoDuration = clientDuration;
       if (!videoDuration) {
         try {
-          const meta = await getVideoMetadata(videoSrc);
+          // getVideoMetadata also accepts local file paths
+          const meta = await getVideoMetadata(mainInputPath);
           videoDuration = meta.durationInSeconds ?? 30;
         } catch {
           videoDuration = 30;
@@ -155,6 +151,12 @@ export async function POST(request: NextRequest) {
         codec: "h264",
         outputLocation: outputPath,
         inputProps,
+        // Limit memory usage to stay within Render's free-tier 512MB cap
+        concurrency: 1,
+        chromiumOptions: {
+          gl: "swangle",           // software-only renderer, no GPU memory
+          enableMultiProcessOnLinux: false, // single-process Chrome
+        },
         onProgress: ({ progress }) => {
           const pct = Math.round(10 + progress * 85);
           const frame = Math.round(progress * durationInFrames);

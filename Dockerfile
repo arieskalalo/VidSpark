@@ -25,9 +25,6 @@ COPY . .
 # Build the Next.js app
 RUN npm run build
 
-# Pre-bundle the Remotion compositions so the first render is not slow
-RUN node scripts/prebundle.mjs
-
 EXPOSE 3000
 
 ENV PORT=3000

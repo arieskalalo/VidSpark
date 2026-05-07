@@ -14,6 +14,7 @@ const bundlePath = await bundle({
   entryPoint: resolve(process.cwd(), "src/remotion/index.ts"),
   outDir,
   webpackOverride: (config) => config,
+  rspack: true, // much lower RAM usage than webpack
   onProgress: (progress) => {
     process.stdout.write(`\r[prebundle] ${Math.round(progress * 100)}%  `);
   },
