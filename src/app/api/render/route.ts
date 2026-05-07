@@ -96,34 +96,28 @@ export async function POST(request: NextRequest) {
     try {
       send({ type: "status", message: "Uploading video…", pct: 2 });
 
-      // Save videos to tmpdir and pass LOCAL FILE PATHS to Remotion.
-      // OffthreadVideo uses ffmpeg server-side — ffmpeg reads the file
-      // directly from disk, no HTTP request needed.
+      // 1. Save uploads to tmpdir so ffprobe can read them for metadata
       const mainBuf = Buffer.from(await videoFile.arrayBuffer());
-      const mainInputPath = path.join(tmpDir, `input_main_${jobId}.mp4`);
-      fs.writeFileSync(mainInputPath, mainBuf);
-      inputFiles.push(mainInputPath);
-      const videoSrc = mainInputPath;
+      const mainTmpPath = path.join(tmpDir, `input_main_${jobId}.mp4`);
+      fs.writeFileSync(mainTmpPath, mainBuf);
+      inputFiles.push(mainTmpPath);
 
-      // Second video
-      let secondVideoSrc: string | undefined;
+      let secondTmpPath: string | undefined;
       if (secondVideoMode !== "none" && secondVideoFile) {
         const buf = Buffer.from(await secondVideoFile.arrayBuffer());
-        const secondInputPath = path.join(tmpDir, `input_second_${jobId}.mp4`);
-        fs.writeFileSync(secondInputPath, buf);
-        inputFiles.push(secondInputPath);
-        secondVideoSrc = secondInputPath;
+        secondTmpPath = path.join(tmpDir, `input_second_${jobId}.mp4`);
+        fs.writeFileSync(secondTmpPath, buf);
+        inputFiles.push(secondTmpPath);
       }
 
       send({ type: "status", message: "Preparing composition…", pct: 5 });
 
+      // 2. Get duration via ffprobe (reads local path directly)
       const fps = 30;
-
       let videoDuration = clientDuration;
       if (!videoDuration) {
         try {
-          // getVideoMetadata also accepts local file paths
-          const meta = await getVideoMetadata(mainInputPath);
+          const meta = await getVideoMetadata(mainTmpPath);
           videoDuration = meta.durationInSeconds ?? 30;
         } catch {
           videoDuration = 30;
@@ -135,12 +129,35 @@ export async function POST(request: NextRequest) {
       const mainClipDuration = Math.max(0.1, (actualTrimEnd - actualTrimStart) / speed);
 
       let totalDuration = mainClipDuration;
-      if (secondVideoMode === "insert" && secondVideoSrc && insertDuration > 0) {
+      if (secondVideoMode === "insert" && secondTmpPath && insertDuration > 0) {
         totalDuration = mainClipDuration + insertDuration;
       }
-
       const durationInFrames = Math.ceil(totalDuration * fps);
 
+      send({ type: "status", message: "Bundling…", pct: 8 });
+
+      // 3. Get (or build) the Remotion bundle
+      const serveUrl = await getBundle();
+
+      // 4. Remotion starts its own HTTP server rooted at the bundle directory.
+      //    Copy the video files into that directory so the server can find them,
+      //    then pass URL-style paths ("/filename.mp4") as videoSrc.
+      const mainBundleFilename = `input_main_${jobId}.mp4`;
+      const mainBundlePath = path.join(serveUrl, mainBundleFilename);
+      fs.copyFileSync(mainTmpPath, mainBundlePath);
+      inputFiles.push(mainBundlePath);
+      const videoSrc = `/${mainBundleFilename}`;
+
+      let secondVideoSrc: string | undefined;
+      if (secondTmpPath) {
+        const secondBundleFilename = `input_second_${jobId}.mp4`;
+        const secondBundlePath = path.join(serveUrl, secondBundleFilename);
+        fs.copyFileSync(secondTmpPath, secondBundlePath);
+        inputFiles.push(secondBundlePath);
+        secondVideoSrc = `/${secondBundleFilename}`;
+      }
+
+      // 5. Build inputProps now that videoSrc and secondVideoSrc are defined
       const inputProps = {
         videoSrc, text, trimStart: actualTrimStart, trimEnd: actualTrimEnd,
         speed, muted, orientation, captionPosition, fontSize, textColor,
@@ -148,10 +165,6 @@ export async function POST(request: NextRequest) {
         insertAt: Math.min(insertAt, mainClipDuration),
         insertDuration, splitLayout,
       };
-
-      send({ type: "status", message: "Bundling…", pct: 8 });
-
-      const serveUrl = await getBundle();
 
       const composition = await selectComposition({ serveUrl, id: "VideoWithCaption", inputProps });
       composition.durationInFrames = durationInFrames;
