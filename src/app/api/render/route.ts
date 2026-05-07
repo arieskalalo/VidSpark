@@ -7,8 +7,21 @@ import path from "path";
 
 let bundleCache: string | null = null;
 
+const BUNDLE_PATH_FILE = path.resolve(process.cwd(), ".remotion-bundle-path");
+
 async function getBundle() {
   if (bundleCache) return bundleCache;
+
+  // Use the bundle pre-built during Docker image creation (scripts/prebundle.mjs)
+  if (fs.existsSync(BUNDLE_PATH_FILE)) {
+    const prebuilt = fs.readFileSync(BUNDLE_PATH_FILE, "utf-8").trim();
+    if (fs.existsSync(prebuilt)) {
+      bundleCache = prebuilt;
+      return bundleCache;
+    }
+  }
+
+  // Fallback: bundle at runtime (slow first render, ~1-2 min)
   bundleCache = await bundle({
     entryPoint: path.resolve(process.cwd(), "src/remotion/index.ts"),
     webpackOverride: (config) => config,
