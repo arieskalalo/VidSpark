@@ -16,12 +16,6 @@ async function getBundle() {
   return bundleCache;
 }
 
-function saveToPublic(buffer: Buffer, dir: string): string {
-  const filename = `video_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`;
-  fs.writeFileSync(path.join(dir, filename), buffer);
-  return filename;
-}
-
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
 
@@ -51,14 +45,12 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Main video is required" }, { status: 400 });
   }
 
-  const publicTmpDir = path.resolve(process.cwd(), "public/tmp");
-  fs.mkdirSync(publicTmpDir, { recursive: true });
-
   const tmpDir = os.tmpdir();
   const jobId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const outputPath = path.join(tmpDir, `output_${jobId}.mp4`);
-  const outputPublicPath = path.join(publicTmpDir, `result_${jobId}.mp4`);
-  const servedFiles: string[] = [];
+
+  // Track all input files for cleanup after render
+  const inputFiles: string[] = [];
 
   // ── SSE stream setup ──
   const { readable, writable } = new TransformStream();
@@ -76,23 +68,29 @@ export async function POST(request: NextRequest) {
     try {
       const host = request.headers.get("host") ?? "localhost:3000";
       const protocol = host.startsWith("localhost") ? "http" : "https";
-      const toUrl = (filename: string) => `${protocol}://${host}/tmp/${filename}`;
+
+      // Build URL for a tmp file served via /api/tmp/[filename]
+      const toUrl = (filename: string) => `${protocol}://${host}/api/tmp/${filename}`;
 
       send({ type: "status", message: "Uploading video…", pct: 2 });
 
-      // Serve main video
+      // Save main video to tmpdir so Remotion can fetch it via the API route
       const mainBuf = Buffer.from(await videoFile.arrayBuffer());
-      const mainFilename = saveToPublic(mainBuf, publicTmpDir);
-      servedFiles.push(mainFilename);
+      const mainFilename = `input_main_${jobId}.mp4`;
+      const mainInputPath = path.join(tmpDir, mainFilename);
+      fs.writeFileSync(mainInputPath, mainBuf);
+      inputFiles.push(mainInputPath);
       const videoSrc = toUrl(mainFilename);
 
-      // Serve second video
+      // Save second video
       let secondVideoSrc: string | undefined;
       if (secondVideoMode !== "none" && secondVideoFile) {
         const buf = Buffer.from(await secondVideoFile.arrayBuffer());
-        const f = saveToPublic(buf, publicTmpDir);
-        servedFiles.push(f);
-        secondVideoSrc = toUrl(f);
+        const secondFilename = `input_second_${jobId}.mp4`;
+        const secondInputPath = path.join(tmpDir, secondFilename);
+        fs.writeFileSync(secondInputPath, buf);
+        inputFiles.push(secondInputPath);
+        secondVideoSrc = toUrl(secondFilename);
       }
 
       send({ type: "status", message: "Preparing composition…", pct: 5 });
@@ -145,7 +143,6 @@ export async function POST(request: NextRequest) {
         outputLocation: outputPath,
         inputProps,
         onProgress: ({ progress }) => {
-          // progress is 0–1; reserve first 10% for setup, last 5% for encoding
           const pct = Math.round(10 + progress * 85);
           const frame = Math.round(progress * durationInFrames);
           send({ type: "progress", pct, frame, total: durationInFrames });
@@ -154,27 +151,26 @@ export async function POST(request: NextRequest) {
 
       send({ type: "status", message: "Encoding final video…", pct: 96 });
 
-      // Move to public/tmp so client can download it
-      fs.copyFileSync(outputPath, outputPublicPath);
-      const downloadUrl = `/tmp/result_${jobId}.mp4`;
-
+      // Send a URL via the /api/tmp route — no public/tmp copy needed
+      const downloadUrl = `/api/tmp/output_${jobId}.mp4`;
       send({ type: "done", url: downloadUrl, pct: 100 });
 
-      // Clean up result file after 10 minutes
+      // Auto-delete rendered output after 10 minutes
       setTimeout(() => {
-        if (fs.existsSync(outputPublicPath)) fs.unlinkSync(outputPublicPath);
+        if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
       }, 10 * 60 * 1000);
 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("[render]", msg);
       send({ type: "error", message: msg });
-    } finally {
-      for (const f of servedFiles) {
-        const p = path.join(publicTmpDir, f);
-        if (fs.existsSync(p)) fs.unlinkSync(p);
-      }
+      // Clean up output on error
       if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    } finally {
+      // Always clean up input files immediately
+      for (const f of inputFiles) {
+        if (fs.existsSync(f)) fs.unlinkSync(f);
+      }
       try { writer.close(); } catch { /* already closed */ }
     }
   })();
