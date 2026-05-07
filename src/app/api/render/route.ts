@@ -24,8 +24,22 @@ async function getBundle() {
   // Bundle at runtime — rspack is much faster and uses far less RAM than webpack
   bundleCache = await bundle({
     entryPoint: path.resolve(process.cwd(), "src/remotion/index.ts"),
-    webpackOverride: (config) => config,
     rspack: true,
+    webpackOverride: (config) => ({
+      ...config,
+      resolve: {
+        ...config.resolve,
+        fallback: {
+          ...(config.resolve?.fallback ?? {}),
+          // Node built-ins used by source-map and other deps — stub them out
+          // in the browser bundle so rspack doesn't error trying to resolve them
+          fs: false,
+          path: false,
+          stream: false,
+          crypto: false,
+        },
+      },
+    }),
   });
   return bundleCache;
 }
